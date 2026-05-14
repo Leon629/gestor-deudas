@@ -1,0 +1,16 @@
+{
+  "name": "Gestor de Deudas Pro",
+  "short_name": "Deudas Pro",
+  "description": "App para gestionar deudas personales",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4f7f6",
+  "theme_color": "#1976D2",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3135/3135673.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

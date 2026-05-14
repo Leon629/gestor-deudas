@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Deudas</title>
+    <link rel="manifest" href="manifest.json">
+    <!-- Librería para exportar a Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        :root { --primary: #1976D2; --success: #4CAF50; --danger: #D32F2F; --warning: #FF9800; --bg: #f4f7f6; }
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg); margin: 0; padding: 15px; color: #333; }
+        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1, h2 { text-align: center; margin-top: 0; }
+        .total { font-size: 1.5em; font-weight: bold; color: var(--danger); text-align: center; margin: 15px 0; }
+        input { width: 100%; padding: 10px; margin: 8px 0 15px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 16px; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 5px; color: white; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 10px; }
+        .btn-add { background-color: var(--primary); }
+        .btn-export { background-color: var(--success); }
+        .btn-edit { background-color: var(--warning); padding: 8px; font-size: 14px; width: 48%; }
+        .btn-delete { background-color: var(--success); padding: 8px; font-size: 14px; width: 48%; float: right; }
+        .deuda-item { border-bottom: 1px solid #eee; padding: 15px 0; overflow: hidden; }
+        .deuda-item:last-child { border-bottom: none; }
+        .deuda-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1em; }
+        .deuda-fecha { font-size: 0.8em; color: #777; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Gestor de Deudas</h1>
+        <div class="total" id="lblTotal">Total Adeudado: $0.00</div>
+        
+        <label>Concepto:</label>
+        <input type="text" id="txtConcepto" placeholder="Ej. Préstamo banco">
+        
+        <label>Monto ($):</label>
+        <input type="number" id="txtMonto" placeholder="0.00" step="0.01">
+        
+        <input type="hidden" id="txtIndiceEdicion" value="-1">
+        <button class="btn-add" id="btnAgregar" onclick="guardarDeuda()">➕ Agregar Deuda</button>
+        <button class="btn-export" onclick="exportarExcel()">📊 Exportar a Excel</button>
+    </div>
+
+    <div class="card">
+        <h2>Mis Deudas</h2>
+        <div id="listaDeudas"></div>
+    </div>
+
+    <script>
+        // Registrar el Service Worker para que sea instalable
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+
+        // Lógica de Datos usando localStorage
+        let deudas = JSON.parse(localStorage.getItem('mis_deudas')) || [];
+
+        function actualizarInterfaz() {
+            const contenedor = document.getElementById('listaDeudas');
+            contenedor.innerHTML = '';
+            let total = 0;
+
+            deudas.forEach((deuda, index) => {
+                total += deuda.monto;
+                contenedor.innerHTML += `
+                    <div class="deuda-item">
+                        <div class="deuda-header">
+                            <span>${deuda.concepto}</span>
+                            <span>$${deuda.monto.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                        </div>
+                        <div class="deuda-fecha">📅 ${deuda.fecha}</div>
+                        <div>
+                            <button class="btn-edit" onclick="prepararEdicion(${index})">✏️ Editar</button>
+                            <button class="btn-delete" onclick="eliminarDeuda(${index})">✔️ Pagada</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            document.getElementById('lblTotal').innerText = `Total Adeudado: $${total.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+        }
+
+        function guardarDeuda() {
+            const concepto = document.getElementById('txtConcepto').value.trim();
+            const monto = parseFloat(document.getElementById('txtMonto').value);
+            const indiceEdicion = parseInt(document.getElementById('txtIndiceEdicion').value);
+
+            if (!concepto || isNaN(monto)) {
+                alert("Por favor, llena ambos campos correctamente.");
+                return;
+            }
+
+            const fechaActual = new Date().toLocaleString('es-CO');
+
+            if (indiceEdicion > -1) {
+                // Editando existente
+                deudas[indiceEdicion].concepto = concepto;
+                deudas[indiceEdicion].monto = monto;
+                document.getElementById('txtIndiceEdicion').value = "-1";
+                document.getElementById('btnAgregar').innerText = "➕ Agregar Deuda";
+                document.getElementById('btnAgregar').style.backgroundColor = "var(--primary)";
+            } else {
+                // Agregando nueva
+                deudas.push({ concepto, monto, fecha: fechaActual });
+            }
+
+            localStorage.setItem('mis_deudas', JSON.stringify(deudas));
+            
+            document.getElementById('txtConcepto').value = '';
+            document.getElementById('txtMonto').value = '';
+            actualizarInterfaz();
+        }
+
+        function eliminarDeuda(index) {
+            if(confirm("¿Seguro que deseas marcar esta deuda como pagada/eliminarla?")) {
+                deudas.splice(index, 1);
+                localStorage.setItem('mis_deudas', JSON.stringify(deudas));
+                actualizarInterfaz();
+            }
+        }
+
+        function prepararEdicion(index) {
+            const deuda = deudas[index];
+            document.getElementById('txtConcepto').value = deuda.concepto;
+            document.getElementById('txtMonto').value = deuda.monto;
+            document.getElementById('txtIndiceEdicion').value = index;
+            
+            const btn = document.getElementById('btnAgregar');
+            btn.innerText = "💾 Guardar Cambios";
+            btn.style.backgroundColor = "var(--warning)";
+            window.scrollTo(0, 0); // Subir la pantalla para que vea el formulario
+        }
+
+        function exportarExcel() {
+            if (deudas.length === 0) {
+                alert("No hay datos para exportar");
+                return;
+            }
+            // Preparar datos para SheetJS
+            const datosFormateados = deudas.map(d => ({
+                "Concepto de Deuda": d.concepto,
+                "Monto ($)": d.monto,
+                "Fecha de Registro": d.fecha
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(datosFormateados);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Mis Deudas");
+            
+            // Generar archivo y descargar
+            XLSX.writeFile(workbook, "Reporte_Deudas.xlsx");
+        }
+
+        // Cargar datos al iniciar
+        actualizarInterfaz();
+    </script>
+</body>
+</html>
