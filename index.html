@@ -7,21 +7,31 @@
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        :root { --primary: #1976D2; --success: #4CAF50; --danger: #D32F2F; --warning: #FF9800; --bg: #f4f7f6; }
+        :root { --primary: #1976D2; --success: #4CAF50; --danger: #D32F2F; --warning: #FF9800; --info: #00BCD4; --bg: #f4f7f6; }
         body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg); margin: 0; padding: 15px; color: #333; }
         .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
         h1, h2 { text-align: center; margin-top: 0; }
         .total { font-size: 1.5em; font-weight: bold; color: var(--danger); text-align: center; margin: 15px 0; }
         input { width: 100%; padding: 10px; margin: 8px 0 15px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 16px; }
         button { width: 100%; padding: 12px; border: none; border-radius: 5px; color: white; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 10px; }
+        
         .btn-add { background-color: var(--primary); }
         .btn-export { background-color: var(--success); }
+        .btn-toggle { background-color: #607D8B; padding: 8px; font-size: 14px; margin-bottom: 15px;}
+        
+        /* Botones de tarjetas */
         .btn-edit { background-color: var(--warning); padding: 8px; font-size: 14px; width: 48%; }
-        .btn-delete { background-color: var(--success); padding: 8px; font-size: 14px; width: 48%; float: right; }
+        .btn-pagada { background-color: var(--success); padding: 8px; font-size: 14px; width: 48%; float: right; }
+        .btn-restore { background-color: var(--info); padding: 8px; font-size: 14px; width: 48%; }
+        .btn-delete-hard { background-color: var(--danger); padding: 8px; font-size: 14px; width: 48%; float: right; }
+        
         .deuda-item { border-bottom: 1px solid #eee; padding: 15px 0; overflow: hidden; }
         .deuda-item:last-child { border-bottom: none; }
         .deuda-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1em; }
         .deuda-fecha { font-size: 0.8em; color: #777; margin-bottom: 10px; }
+        
+        /* Estilo para tachar deudas pagadas */
+        .tachado { text-decoration: line-through; color: #9E9E9E; }
     </style>
 </head>
 <body>
@@ -43,7 +53,8 @@
     </div>
 
     <div class="card">
-        <h2>Mis Deudas</h2>
+        <h2 id="tituloLista">Mis Deudas Activas</h2>
+        <button class="btn-toggle" id="btnToggle" onclick="window.alternarVista()">🗂️ Ver Historial de Pagadas</button>
         <div id="listaDeudas"></div>
     </div>
 
@@ -51,7 +62,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
         import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
 
-        // TUS CREDENCIALES
         const firebaseConfig = {
           apiKey: "AIzaSyBytzDCR9hDJ_7sRp-kRejniLb7eauGw80",
           authDomain: "gestor-de-deudas-app-4ea8d.firebaseapp.com",
@@ -61,48 +71,98 @@
           appId: "1:853056296188:web:c548776d63a05fba0ff379"
         };
 
-        // Iniciar Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
         let deudasLocales = [];
+        let viendoHistorial = false; // Variable para saber qué pantalla estamos viendo
 
         // ESCUCHAR DATOS EN TIEMPO REAL
         onSnapshot(collection(db, "deudas"), (snapshot) => {
             deudasLocales = [];
             snapshot.forEach((doc) => {
-                // Guardamos los datos y el ID único de Firebase
                 deudasLocales.push({ id: doc.id, ...doc.data() });
             });
             actualizarInterfaz();
         });
+
+        window.alternarVista = function() {
+            viendoHistorial = !viendoHistorial;
+            const btnToggle = document.getElementById('btnToggle');
+            const tituloLista = document.getElementById('tituloLista');
+            const lblTotal = document.getElementById('lblTotal');
+            
+            if (viendoHistorial) {
+                btnToggle.innerText = "🔙 Volver a Deudas Activas";
+                tituloLista.innerText = "Historial (Pagadas)";
+                lblTotal.style.color = "#4CAF50"; // Cambiar color a verde
+            } else {
+                btnToggle.innerText = "🗂️ Ver Historial de Pagadas";
+                tituloLista.innerText = "Mis Deudas Activas";
+                lblTotal.style.color = "var(--danger)"; // Volver a rojo
+            }
+            actualizarInterfaz();
+        };
 
         function actualizarInterfaz() {
             const contenedor = document.getElementById('listaDeudas');
             contenedor.innerHTML = '';
             let total = 0;
 
-            deudasLocales.forEach((deuda) => {
+            // Filtrar la lista dependiendo de lo que el usuario quiera ver
+            const deudasFiltradas = deudasLocales.filter(d => {
+                // Si la deuda no tiene estado, asumimos que es activa (para compatibilidad con datos viejos)
+                const estado = d.estado || 'activa'; 
+                if (viendoHistorial) {
+                    return estado === 'pagada';
+                } else {
+                    return estado === 'activa';
+                }
+            });
+
+            if (deudasFiltradas.length === 0) {
+                contenedor.innerHTML = '<p style="text-align:center; color:#777;">No hay deudas en esta sección.</p>';
+            }
+
+            deudasFiltradas.forEach((deuda) => {
                 total += deuda.monto;
+                
+                // Si estamos en historial, tachamos el texto
+                const claseTachado = viendoHistorial ? "tachado" : "";
+                
+                // Botones dinámicos según la vista
+                let botonesHTML = '';
+                if (viendoHistorial) {
+                    botonesHTML = `
+                        <button class="btn-restore" onclick="window.recuperarDeuda('${deuda.id}')">🔄 Recuperar</button>
+                        <button class="btn-delete-hard" onclick="window.eliminarDefinitivo('${deuda.id}')">🗑️ Borrar</button>
+                    `;
+                } else {
+                    botonesHTML = `
+                        <button class="btn-edit" onclick="window.prepararEdicion('${deuda.id}', '${deuda.concepto}', ${deuda.monto})">✏️ Editar</button>
+                        <button class="btn-pagada" onclick="window.marcarPagada('${deuda.id}')">✔️ Pagada</button>
+                    `;
+                }
+
                 contenedor.innerHTML += `
                     <div class="deuda-item">
-                        <div class="deuda-header">
+                        <div class="deuda-header ${claseTachado}">
                             <span>${deuda.concepto}</span>
                             <span>$${deuda.monto.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                         </div>
                         <div class="deuda-fecha">📅 ${deuda.fecha}</div>
                         <div>
-                            <button class="btn-edit" onclick="window.prepararEdicion('${deuda.id}', '${deuda.concepto}', ${deuda.monto})">✏️ Editar</button>
-                            <button class="btn-delete" onclick="window.eliminarDeuda('${deuda.id}')">✔️ Pagada</button>
+                            ${botonesHTML}
                         </div>
                     </div>
                 `;
             });
 
-            document.getElementById('lblTotal').innerText = `Total Adeudado: $${total.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+            // Actualizar texto del total
+            const textoTotal = viendoHistorial ? "Total Pagado Histórico:" : "Total Adeudado:";
+            document.getElementById('lblTotal').innerText = `${textoTotal} $${total.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
         }
 
-        // AGREGAR O ACTUALIZAR
         window.guardarDeuda = async function() {
             const concepto = document.getElementById('txtConcepto').value.trim();
             const monto = parseFloat(document.getElementById('txtMonto').value);
@@ -117,40 +177,49 @@
 
             try {
                 if (idEdicion !== "") {
-                    // Editar existente en la nube
                     const deudaRef = doc(db, "deudas", idEdicion);
                     await updateDoc(deudaRef, { concepto: concepto, monto: monto });
-                    
-                    // Limpiar estado de edición
                     document.getElementById('txtIdEdicion').value = "";
                     document.getElementById('btnAgregar').innerText = "➕ Agregar Deuda";
                     document.getElementById('btnAgregar').style.backgroundColor = "var(--primary)";
                 } else {
-                    // Crear nueva en la nube
                     await addDoc(collection(db, "deudas"), {
                         concepto: concepto,
                         monto: monto,
-                        fecha: fechaActual
+                        fecha: fechaActual,
+                        estado: 'activa' // <-- Se guarda por defecto como activa
                     });
                 }
-
-                // Limpiar campos
                 document.getElementById('txtConcepto').value = '';
                 document.getElementById('txtMonto').value = '';
+                
+                // Si estaba viendo el historial y agrega una nueva, lo devolvemos a las activas
+                if (viendoHistorial) {
+                    window.alternarVista();
+                }
                 
             } catch (error) {
                 alert("Error al guardar: " + error.message);
             }
         };
 
-        // ELIMINAR
-        window.eliminarDeuda = async function(id) {
-            if(confirm("¿Seguro que deseas marcar esta deuda como pagada? Se eliminará para siempre.")) {
+        // EN LUGAR DE BORRAR, AHORA SOLO CAMBIAMOS EL ESTADO A "PAGADA"
+        window.marcarPagada = async function(id) {
+            await updateDoc(doc(db, "deudas", id), { estado: 'pagada' });
+        };
+
+        // RECUPERAR DEL HISTORIAL
+        window.recuperarDeuda = async function(id) {
+            await updateDoc(doc(db, "deudas", id), { estado: 'activa' });
+        };
+
+        // ESTE SÍ BORRA DE VERDAD LA DEUDA DE LA BASE DE DATOS
+        window.eliminarDefinitivo = async function(id) {
+            if(confirm("¿Seguro que deseas ELIMINAR esta deuda de la base de datos? Esta acción no se puede deshacer.")) {
                 await deleteDoc(doc(db, "deudas", id));
             }
         };
 
-        // PREPARAR EDICIÓN
         window.prepararEdicion = function(id, concepto, monto) {
             document.getElementById('txtConcepto').value = concepto;
             document.getElementById('txtMonto').value = monto;
@@ -162,25 +231,33 @@
             window.scrollTo(0, 0);
         };
 
-        // EXPORTAR
         window.exportarExcel = function() {
-            if (deudasLocales.length === 0) {
-                alert("No hay datos para exportar");
+            // Filtrar lo que se va a exportar según la vista actual
+            const deudasAExportar = deudasLocales.filter(d => {
+                const estado = d.estado || 'activa';
+                return viendoHistorial ? estado === 'pagada' : estado === 'activa';
+            });
+
+            if (deudasAExportar.length === 0) {
+                alert("No hay datos en esta vista para exportar.");
                 return;
             }
-            const datosFormateados = deudasLocales.map(d => ({
+
+            const datosFormateados = deudasAExportar.map(d => ({
                 "Concepto de Deuda": d.concepto,
                 "Monto ($)": d.monto,
+                "Estado": d.estado || 'activa',
                 "Fecha de Registro": d.fecha
             }));
 
             const worksheet = XLSX.utils.json_to_sheet(datosFormateados);
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Mis Deudas");
-            XLSX.writeFile(workbook, "Reporte_Deudas.xlsx");
+            const nombreHoja = viendoHistorial ? "Historial Pagadas" : "Deudas Activas";
+            
+            XLSX.utils.book_append_sheet(workbook, worksheet, nombreHoja);
+            XLSX.writeFile(workbook, `Reporte_${nombreHoja.replace(" ", "_")}.xlsx`);
         };
 
-        // Registrar Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js');
         }
