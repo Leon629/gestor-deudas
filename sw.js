@@ -1,4 +1,4 @@
-const CACHE_NAME = 'deudas-cache-v2'; // Cambiamos de v1 a v2
+const CACHE_NAME = 'deudas-cache-v3'; // Cambiamos de v2 a v3
 const urlsToCache = [
   './',
   './index.html',
