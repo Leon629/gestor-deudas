@@ -19,6 +19,11 @@
         .btn-export { background-color: var(--success); }
         .btn-toggle { background-color: #607D8B; padding: 8px; font-size: 14px; margin-bottom: 15px;}
         
+        /* Contenedor de Filtros y Búsqueda */
+        .filtros-container { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; background: #eef2f5; padding: 15px; border-radius: 8px; border: 1px solid #d1d9e0; }
+        .filtros-container input, .filtros-container select { margin: 0; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 15px; }
+        .filtros-container label { font-weight: bold; font-size: 14px; color: #555; }
+
         /* Botones de tarjetas */
         .btn-edit { background-color: var(--warning); padding: 8px; font-size: 14px; width: 48%; }
         .btn-pagada { background-color: var(--success); padding: 8px; font-size: 14px; width: 48%; float: right; }
@@ -29,8 +34,6 @@
         .deuda-item:last-child { border-bottom: none; }
         .deuda-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1em; }
         .deuda-fecha { font-size: 0.8em; color: #777; margin-bottom: 10px; }
-        
-        /* Estilo para tachar deudas pagadas */
         .tachado { text-decoration: line-through; color: #9E9E9E; }
     </style>
 </head>
@@ -55,6 +58,25 @@
     <div class="card">
         <h2 id="tituloLista">Mis Deudas Activas</h2>
         <button class="btn-toggle" id="btnToggle" onclick="window.alternarVista()">🗂️ Ver Historial de Pagadas</button>
+        
+        <div class="filtros-container">
+            <div>
+                <label>🔍 Buscar deuda:</label>
+                <input type="text" id="txtBuscar" placeholder="Escribe un nombre..." oninput="window.actualizarInterfaz()">
+            </div>
+            <div>
+                <label>📶 Organizar por:</label>
+                <select id="cmbOrdenar" onchange="window.actualizarInterfaz()">
+                    <option value="fecha_desc">⏳ Más recientes primero</option>
+                    <option value="fecha_asc">⏳ Más antiguas primero</option>
+                    <option value="monto_desc">💰 Mayor a menor precio</option>
+                    <option value="monto_asc">💰 Menor a mayor precio</option>
+                    <option value="nombre_asc">🔤 Alfabético (A - Z)</option>
+                    <option value="nombre_desc">🔤 Alfabético (Z - A)</option>
+                </select>
+            </div>
+        </div>
+
         <div id="listaDeudas"></div>
     </div>
 
@@ -62,6 +84,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
         import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
 
+        // TUS LLAVES DE FIREBASE (Intactas)
         const firebaseConfig = {
           apiKey: "AIzaSyBytzDCR9hDJ_7sRp-kRejniLb7eauGw80",
           authDomain: "gestor-de-deudas-app-4ea8d.firebaseapp.com",
@@ -75,7 +98,7 @@
         const db = getFirestore(app);
 
         let deudasLocales = [];
-        let viendoHistorial = false; // Variable para saber qué pantalla estamos viendo
+        let viendoHistorial = false;
 
         // ESCUCHAR DATOS EN TIEMPO REAL
         onSnapshot(collection(db, "deudas"), (snapshot) => {
@@ -83,7 +106,8 @@
             snapshot.forEach((doc) => {
                 deudasLocales.push({ id: doc.id, ...doc.data() });
             });
-            actualizarInterfaz();
+            // Hacemos que la vista se actualice con los datos nuevos
+            window.actualizarInterfaz();
         });
 
         window.alternarVista = function() {
@@ -95,42 +119,59 @@
             if (viendoHistorial) {
                 btnToggle.innerText = "🔙 Volver a Deudas Activas";
                 tituloLista.innerText = "Historial (Pagadas)";
-                lblTotal.style.color = "#4CAF50"; // Cambiar color a verde
+                lblTotal.style.color = "#4CAF50"; 
             } else {
                 btnToggle.innerText = "🗂️ Ver Historial de Pagadas";
                 tituloLista.innerText = "Mis Deudas Activas";
-                lblTotal.style.color = "var(--danger)"; // Volver a rojo
+                lblTotal.style.color = "var(--danger)"; 
             }
-            actualizarInterfaz();
+            window.actualizarInterfaz();
         };
 
-        function actualizarInterfaz() {
+        // FUNCIÓN PRINCIPAL ACTUALIZADA CON BÚSQUEDA Y ORDENAMIENTO
+        window.actualizarInterfaz = function() {
             const contenedor = document.getElementById('listaDeudas');
             contenedor.innerHTML = '';
+            
+            // Obtener lo que el usuario escribió en el buscador y la opción del select
+            const textoBusqueda = document.getElementById('txtBuscar').value.toLowerCase();
+            const tipoOrden = document.getElementById('cmbOrdenar').value;
+
             let total = 0;
 
-            // Filtrar la lista dependiendo de lo que el usuario quiera ver
-            const deudasFiltradas = deudasLocales.filter(d => {
-                // Si la deuda no tiene estado, asumimos que es activa (para compatibilidad con datos viejos)
-                const estado = d.estado || 'activa'; 
-                if (viendoHistorial) {
-                    return estado === 'pagada';
-                } else {
-                    return estado === 'activa';
-                }
+            // 1. Filtrar (Por Estado y por Búsqueda)
+            let deudasFiltradas = deudasLocales.filter(d => {
+                const estado = d.estado || 'activa';
+                const coincideEstado = viendoHistorial ? estado === 'pagada' : estado === 'activa';
+                const coincideBusqueda = d.concepto.toLowerCase().includes(textoBusqueda);
+                return coincideEstado && coincideBusqueda;
+            });
+
+            // 2. Ordenar
+            deudasFiltradas.sort((a, b) => {
+                // Si son deudas viejas que no tenían timestamp, les asignamos 0 para que no den error
+                const tiempoA = a.timestamp || 0;
+                const tiempoB = b.timestamp || 0;
+
+                if (tipoOrden === 'fecha_desc') return tiempoB - tiempoA;
+                if (tipoOrden === 'fecha_asc') return tiempoA - tiempoB;
+                if (tipoOrden === 'monto_desc') return b.monto - a.monto;
+                if (tipoOrden === 'monto_asc') return a.monto - b.monto;
+                if (tipoOrden === 'nombre_asc') return a.concepto.localeCompare(b.concepto);
+                if (tipoOrden === 'nombre_desc') return b.concepto.localeCompare(a.concepto);
+                return 0;
             });
 
             if (deudasFiltradas.length === 0) {
-                contenedor.innerHTML = '<p style="text-align:center; color:#777;">No hay deudas en esta sección.</p>';
+                contenedor.innerHTML = '<p style="text-align:center; color:#777;">No se encontraron resultados.</p>';
             }
 
+            // 3. Mostrar en pantalla
             deudasFiltradas.forEach((deuda) => {
                 total += deuda.monto;
                 
-                // Si estamos en historial, tachamos el texto
                 const claseTachado = viendoHistorial ? "tachado" : "";
                 
-                // Botones dinámicos según la vista
                 let botonesHTML = '';
                 if (viendoHistorial) {
                     botonesHTML = `
@@ -158,8 +199,8 @@
                 `;
             });
 
-            // Actualizar texto del total
-            const textoTotal = viendoHistorial ? "Total Pagado Histórico:" : "Total Adeudado:";
+            // Actualizar texto del total SOLO con lo que se está mostrando/buscando
+            const textoTotal = viendoHistorial ? "Total Pagado en pantalla:" : "Total Adeudado en pantalla:";
             document.getElementById('lblTotal').innerText = `${textoTotal} $${total.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
         }
 
@@ -174,6 +215,7 @@
             }
 
             const fechaActual = new Date().toLocaleString('es-CO');
+            const timestampActual = Date.now(); // <-- Nueva marca de tiempo para organizar exacto
 
             try {
                 if (idEdicion !== "") {
@@ -187,13 +229,13 @@
                         concepto: concepto,
                         monto: monto,
                         fecha: fechaActual,
-                        estado: 'activa' // <-- Se guarda por defecto como activa
+                        timestamp: timestampActual, // Guardamos el timestamp numérico
+                        estado: 'activa'
                     });
                 }
                 document.getElementById('txtConcepto').value = '';
                 document.getElementById('txtMonto').value = '';
                 
-                // Si estaba viendo el historial y agrega una nueva, lo devolvemos a las activas
                 if (viendoHistorial) {
                     window.alternarVista();
                 }
@@ -203,17 +245,14 @@
             }
         };
 
-        // EN LUGAR DE BORRAR, AHORA SOLO CAMBIAMOS EL ESTADO A "PAGADA"
         window.marcarPagada = async function(id) {
             await updateDoc(doc(db, "deudas", id), { estado: 'pagada' });
         };
 
-        // RECUPERAR DEL HISTORIAL
         window.recuperarDeuda = async function(id) {
             await updateDoc(doc(db, "deudas", id), { estado: 'activa' });
         };
 
-        // ESTE SÍ BORRA DE VERDAD LA DEUDA DE LA BASE DE DATOS
         window.eliminarDefinitivo = async function(id) {
             if(confirm("¿Seguro que deseas ELIMINAR esta deuda de la base de datos? Esta acción no se puede deshacer.")) {
                 await deleteDoc(doc(db, "deudas", id));
@@ -232,10 +271,14 @@
         };
 
         window.exportarExcel = function() {
-            // Filtrar lo que se va a exportar según la vista actual
+            // Obtener filtros actuales para exportar exactamente lo que vemos
+            const textoBusqueda = document.getElementById('txtBuscar').value.toLowerCase();
+            
             const deudasAExportar = deudasLocales.filter(d => {
                 const estado = d.estado || 'activa';
-                return viendoHistorial ? estado === 'pagada' : estado === 'activa';
+                const coincideEstado = viendoHistorial ? estado === 'pagada' : estado === 'activa';
+                const coincideBusqueda = d.concepto.toLowerCase().includes(textoBusqueda);
+                return coincideEstado && coincideBusqueda;
             });
 
             if (deudasAExportar.length === 0) {
